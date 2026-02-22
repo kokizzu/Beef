@@ -10686,7 +10686,14 @@ namespace IDE
 
 		[CLink] static extern char8* getenv(char8*);
 
-		public bool DoResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String error, String result)
+		public enum ResolveConfigStringFlags
+		{
+			None,
+			RawQuoteResults,
+			DeferVar
+		}
+
+		public bool DoResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String error, String result, ResolveConfigStringFlags flags = 0)
 		{
 			int startIdx = result.Length;
 			int i = startIdx;
@@ -10743,6 +10750,7 @@ namespace IDE
 						{
 							String replaceStr = scope String(result, i + 2, parenPos - i - 2);
 							String newString = null;
+							bool isVarLookup = false;
 
 							if (replaceStr.Contains(' '))
 							{
@@ -10783,7 +10791,13 @@ namespace IDE
 									else
 										cmdErr = "Invalid number of arguments";
 								case "Var":
-									break ReplaceBlock;
+									if ((flags.HasFlag(.DeferVar)) && (args.Count > 0))
+									{
+										isVarLookup = true;
+										newString = args[0];
+									}
+									else
+										break ReplaceBlock;
 								case "Env":
 									if (args.Count == 1)
 									{
@@ -11057,7 +11071,31 @@ namespace IDE
 							if (newString != null)
 							{
 								result.Remove(i, parenPos - i + 1);
-								result.Insert(i, newString);
+
+								if (isVarLookup)
+								{
+									result.Insert(i, @"\$");
+									result.Insert(i + 2, newString);
+									result.Insert(i + 2 + newString.Length, @"\$");
+									i += newString.Length + 4;
+								}
+								else if (flags.HasFlag(.RawQuoteResults))
+								{
+									if (newString.Contains('$'))
+									{
+										// We can't nest raw quotes
+										var innerStr = DoResolveConfigString(platformName, workspaceOptions, project, options, newString, error, .. scope .());
+										newString.Set(innerStr);
+									}
+
+									result.Insert(i, @"\`");
+									result.Insert(i + 2, newString);
+									result.Insert(i + 2 + newString.Length, @"\`");
+									i += newString.Length + 4;
+								}
+								else
+									result.Insert(i, newString);
+
 								i--;
 							}
 						}
@@ -11158,10 +11196,10 @@ namespace IDE
 			}
 		}
 
-		public bool ResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String errorContext, String outResult)
+		public bool ResolveConfigString(String platformName, Workspace.Options workspaceOptions, Project project, Project.Options options, StringView configString, String errorContext, String outResult, ResolveConfigStringFlags flags = 0)
 		{
 			String errorString = scope String();
-			if (!DoResolveConfigString(platformName, workspaceOptions, project, options, configString, errorString, outResult))
+			if (!DoResolveConfigString(platformName, workspaceOptions, project, options, configString, errorString, outResult, flags))
 			{
 				OutputErrorLine("Invalid macro in {0}: {1}", errorContext, errorString);
 				return false;

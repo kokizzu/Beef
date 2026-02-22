@@ -140,7 +140,7 @@ namespace IDE
 
 				if (isCommand)
 				{
-					customCmd.Append(origCustomCmd);
+					gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, origCustomCmd, "custom command", customCmd, .DeferVar);
 				}
 				else
 				{
